@@ -1,6 +1,6 @@
 <div align="center">
-  <H1><b>TCG Vendors</b></H1><br>
   <img src="banner.png" alt="TCG Vendor Banner" width="800px">
+  <H1><b>TCG Vendors</b></H1><H3>Author: lightninjay<br>with the help of Claude.ai</H3><br>
 
 An [AzerothCore](https://www.azerothcore.org/) module that implements fully functional item
 redemption<br> for five World of Warcraft promotional item NPCs present in the 3.3.5a client.
