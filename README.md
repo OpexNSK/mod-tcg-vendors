@@ -3,7 +3,9 @@
   <H1><b>TCG Vendors</b></H1><H3>Author: lightninjay<br>with the help of Claude.ai</H3><br>
 
 An [AzerothCore](https://www.azerothcore.org/) module that implements fully functional item
-redemption<br> for five World of Warcraft promotional item NPCs present in the 3.3.5a client.
+redemption<br> for five World of Warcraft promotional item NPCs present in the 3.3.5a client,
+plus an optional boss drop system that generates unique TCG promotional codes on configurable
+boss kills and delivers them to players as readable in-game stationery.
 
 | NPC | Location | Items |
 |-----|----------|-------|
@@ -17,12 +19,67 @@ Landro Longshot, Ransin Donner, and Zas'Tysh exist in the default AzerothCore da
 stubs with no item delivery logic. Garel Redrock and Tharl Stonebleeder are their counterpart
 NPCs — Tharl is present in the 3.3.5a client data, while Garel is a custom spawn that
 completes the Alliance side. This module brings all five NPCs to life with configurable
-redemption modes, correct item entry IDs, and a full GM delivery and management toolset.
+redemption modes, correct item entry IDs, a full GM delivery and management toolset, as well as an
+automated boss drop system.
 
 > **Note:** Developed against the
 > [mod-playerbots fork](https://github.com/liyunfan1223/azerothcore-wotlk) of AzerothCore.
 > Should be compatible with standard AzerothCore mainline. See
 > [Compatibility](#compatibility) for details.
+
+---
+
+## Features
+
+- **Four configurable operation modes** covering every server style, from fully free to
+  retail-authentic code redemption.
+- **74 reward items** spanning all 13 TCG expansion sets, three Blizzcon promotional items,
+  and the full Garel/Tharl promotional catalogue.
+- **Multi-item set support** — Spectral Tiger and X-51 Nether-Rocket each award both mount
+  variants in a single redemption.
+- **Faction-aware delivery** — the Scourgewar Mini-Mount awards the Horde or Alliance variant
+  automatically based on the receiving character's race.
+- **Unique vs. consumable item classification** — permanent unlocks are one-time per
+  character; charged or stackable toys are unlimited.
+- **Companion-gated items** — Red War Fuel and Blue War Fuel are freely redeemable in any
+  mode, any number of times, but only to characters who have already learned the Warbot
+  companion (spell 65682).
+- **Inventory fallback** — if a player's bags are full at redemption, all items are mailed
+  to the character rather than being blocked or lost.
+- **GM free-browse menu** in all modes (including Disabled), allowing Game Masters with GM
+  mode active to browse the full catalogue and deliver any item to any character by name.
+- **GM force-delivery override** — if a target character has already received a unique item,
+  the GM is presented with an override confirmation dialog rather than a silent block.
+- **GM redemption flag management** — a dedicated menu option clears all
+  `character_tcg_redeemed` records for a named character, resetting their unique-item
+  eligibility.
+- **Configurable Landro's Box behaviour** — Landro's Gift Box and Landro's Pet Box can be
+  set to one-time or unlimited per character independently of all other items.
+- **Crash-safe code redemption** — codes are marked used before item delivery so a partial
+  delivery on server crash cannot be replayed.
+- **Boss drop system** — generates a unique TCG promotional code on each configured boss
+  kill and delivers it to players as a readable stationery item, with three configurable
+  delivery modes (loot window only, mail only, or both).
+- **Interactive code generator dashboard** (`tools/generate_codes.py`) with a terminal UI
+  and full non-interactive CLI support for scripted workflows.
+
+---
+
+## Operation Modes
+
+Set via `TCGVendors.Mode` in `mod-tcg-vendors.conf`.
+
+| Mode | Name | Description |
+|------|------|-------------|
+| `0` | **Disabled** | Module registers but defers entirely to default database gossip. No items are offered by the scripts. Useful for temporarily suspending the system without reverting any SQL. |
+| `1` | **Free** | No codes required. All players browse the full catalogue and claim items directly from the gossip menu. Unique items are one-time per character; consumables are unlimited. |
+| `2` | **Blizz-like** *(default)* | Players enter a pre-generated `XXXX-XXXX-XXXX-XXXX` code at the NPC root dialog. Each code is single-use, tracked at account level. The reward is determined entirely by the code — the player does not browse to an item first. Blizzcon vendors show items directly with per-item code dialogs in this mode. |
+| `3` | **Item-Specific Code** | Players browse to a specific item and enter a code for that item. A valid code for a *different* item produces a mismatch error. Closest to the original retail experience. |
+
+> **Note on companion-gated items (War Fuel):** Red War Fuel and Blue War Fuel bypass the
+> mode setting entirely. They are always presented as a free confirmation click — no code is
+> ever generated or required. The only gate is whether the character has already learned the
+> Warbot companion pet.
 
 ---
 
@@ -155,57 +212,6 @@ redemption modes, correct item entry IDs, and a full GM delivery and management 
 
 ---
 
-## Features
-
-- **Four configurable operation modes** covering every server style, from fully free to
-  retail-authentic code redemption.
-- **74 reward items** spanning all 13 TCG expansion sets, three Blizzcon promotional items,
-  and the full Garel/Tharl promotional catalogue.
-- **Multi-item set support** — Spectral Tiger and X-51 Nether-Rocket each award both mount
-  variants in a single redemption.
-- **Faction-aware delivery** — the Scourgewar Mini-Mount awards the Horde or Alliance variant
-  automatically based on the receiving character's race.
-- **Unique vs. consumable item classification** — permanent unlocks are one-time per
-  character; charged or stackable toys are unlimited.
-- **Companion-gated items** — Red War Fuel and Blue War Fuel are freely redeemable in any
-  mode, any number of times, but only to characters who have already learned the Warbot
-  companion (spell 65682).
-- **Inventory fallback** — if a player's bags are full at redemption, all items are mailed
-  to the character rather than being blocked or lost.
-- **GM free-browse menu** in all modes (including Disabled), allowing Game Masters with GM
-  mode active to browse the full catalogue and deliver any item to any character by name.
-- **GM force-delivery override** — if a target character has already received a unique item,
-  the GM is presented with an override confirmation dialog rather than a silent block.
-- **GM redemption flag management** — a dedicated menu option clears all
-  `character_tcg_redeemed` records for a named character, resetting their unique-item
-  eligibility.
-- **Configurable Landro's Box behaviour** — Landro's Gift Box and Landro's Pet Box can be
-  set to one-time or unlimited per character independently of all other items.
-- **Crash-safe code redemption** — codes are marked used before item delivery so a partial
-  delivery on server crash cannot be replayed.
-- **Interactive code generator dashboard** (`tools/generate_codes.py`) with a terminal UI
-  and full non-interactive CLI support for scripted workflows.
-
----
-
-## Operation Modes
-
-Set via `TCGVendors.Mode` in `mod-tcg-vendors.conf`.
-
-| Mode | Name | Description |
-|------|------|-------------|
-| `0` | **Disabled** | Module registers but defers entirely to default database gossip. No items are offered by the scripts. Useful for temporarily suspending the system without reverting any SQL. |
-| `1` | **Free** | No codes required. All players browse the full catalogue and claim items directly from the gossip menu. Unique items are one-time per character; consumables are unlimited. |
-| `2` | **Blizz-like** *(default)* | Players enter a pre-generated `XXXX-XXXX-XXXX-XXXX` code at the NPC root dialog. Each code is single-use, tracked at account level. The reward is determined entirely by the code — the player does not browse to an item first. Blizzcon vendors show items directly with per-item code dialogs in this mode. |
-| `3` | **Item-Specific Code** | Players browse to a specific item and enter a code for that item. A valid code for a *different* item produces a mismatch error. Closest to the original retail experience. |
-
-> **Note on companion-gated items (War Fuel):** Red War Fuel and Blue War Fuel bypass the
-> mode setting entirely. They are always presented as a free confirmation click — no code is
-> ever generated or required. The only gate is whether the character has already learned the
-> Warbot companion pet.
-
----
-
 ## Requirements
 
 - [AzerothCore](https://www.azerothcore.org/) 3.3.5a (or the
@@ -261,6 +267,9 @@ The SQL does not modify any item templates or other existing world data beyond t
 > all other module SQL patches, preventing other modules from inadvertently overwriting these
 > creature or NPC text entries.
 
+> **Database names:** The commands above use the standard AzerothCore database names
+> (`acore_characters`, `acore_world`). Substitute your own database names if they differ.
+
 ### 3. Recompile
 
 Reconfigure CMake and rebuild the core. The module is detected and compiled automatically.
@@ -274,14 +283,9 @@ Verify it appears in the CMake output:
 
 ### 4. Configure
 
-Copy `conf/mod-tcg-vendors.conf.dist` to your server's conf directory and rename it:
-
-```bash
-cp conf/mod-tcg-vendors.conf.dist /path/to/server/conf/mod-tcg-vendors.conf
-```
-
-Edit the file and set your preferred mode and options. See [Configuration](#configuration)
-for all available options.
+Copy `conf/mod-tcg-vendors.conf.dist` to your server's modules conf directory and rename it
+by removing the `.dist` extension. Edit the file and set your preferred mode and options. See
+[Configuration](#configuration) for all available options.
 
 ### 5. Populate redemption codes (Modes 2 and 3 only)
 
@@ -291,7 +295,12 @@ into your characters database before players begin redeeming:
 ```bash
 # Launch the interactive dashboard (recommended for first-time setup)
 python3 tools/generate_codes.py
+
+# Or generate a full batch non-interactively
+python3 tools/generate_codes.py --all --count 10 --output codes.sql
+mysql -u root -p acore_characters < codes.sql
 ```
+
 See [Code Generator](#code-generator) for full usage.
 
 ---
@@ -299,6 +308,79 @@ See [Code Generator](#code-generator) for full usage.
 ## Configuration
 
 All options live in `mod-tcg-vendors.conf`.
+
+### `TCGVendors.Mode`
+
+Controls the overall behaviour of all five NPCs.
+
+| Value | Behaviour |
+|-------|-----------|
+| `0` | **Disabled** — NPCs revert to default database gossip. No items offered. |
+| `1` | **Free** — No codes. All players browse and claim items directly. |
+| `2` | **Blizz-like** *(default)* — Single root code-entry dialog at Landro Longshot and the promo vendors. Blizzcon vendors list items directly with per-item code dialogs. Codes are single-use, tracked at account level. |
+| `3` | **Item-Specific Code** — Browse first, then enter a code for the selected item. |
+
+### `TCGVendors.LandroBoxesMultiRedeem`
+
+Controls whether Landro's Gift Box (54218) and Landro's Pet Box (50301) can be redeemed more
+than once per character.
+
+| Value | Behaviour |
+|-------|-----------|
+| `0` *(default)* | One-time per character. Both boxes are recorded in `character_tcg_redeemed`. |
+| `1` | Unlimited. Both boxes are treated as consumables. In Mode 2/3 each code is still single-use; this only removes the per-character uniqueness gate. |
+
+### `TCGVendors.BossDrop.Enabled`
+
+Master switch for the boss drop system. Default: `0` (disabled).
+
+### `TCGVendors.BossDrop.CreatureIds`
+
+Comma-separated list of creature_template entry IDs for bosses that should trigger a code
+drop on kill. Example: `TCGVendors.BossDrop.CreatureIds = 11502,15990,36597`
+
+On every server startup, ALL item 9311 rows are purged from `creature_loot_template` and
+then re-inserted exclusively for the entries listed here (subject to
+`TCGVendors.BossDrop.MailParticipants` — see below). The loot tables are reloaded
+in-process immediately after. Adding or removing a boss takes effect on the next restart.
+
+### `TCGVendors.BossDrop.ItemIds`
+
+Comma-separated list of item entry IDs from the TCG/promotional catalogs. Each boss kill
+randomly selects one item from this pool; the generated stationery code will be redeemable
+for that item. All entries must exist in the module's reward catalog.
+Example: `TCGVendors.BossDrop.ItemIds = 23720,33224,38576`
+
+### `TCGVendors.BossDrop.MailParticipants`
+
+Controls how stationery is delivered to players and whether a loot-window drop is generated.
+
+| Value | Behaviour |
+|-------|-----------|
+| `0` *(default)* | **Loot window only.** A single stationery item appears on the boss corpse. Loot template rows for item 9311 are inserted on startup for all configured boss entries. |
+| `1` | **Mail only.** Every qualifying group/raid member present on the same map receives a stationery in their mailbox, each with a unique code. No loot template rows are inserted — item 9311 does NOT appear on the corpse. |
+| `2` | **Mail AND loot.** Every qualifying participant receives a mailed stationery with their own unique code, AND a single stationery item appears on the boss corpse as a loot-window drop. |
+
+Solo players (no group) receive mail to themselves when mail delivery is active.
+
+---
+
+## Boss Drop System
+
+When enabled, the boss drop system hooks into the kill event for each configured boss. On
+kill, a reward item is selected at random from `TCGVendors.BossDrop.ItemIds`, a unique
+`XXXX-XXXX-XXXX-XXXX` code is generated and inserted into `account_tcg_codes` as unredeemed,
+and delivery proceeds according to `TCGVendors.BossDrop.MailParticipants`.
+
+The stationery item (Default Stationery, item 9311) is readable in-game by right-clicking it
+in the player's inventory. It contains the generated code, the name of the boss defeated,
+the name of the redeemable item, and directions to the correct vendor NPC. The code can then
+be redeemed at the appropriate NPC using the normal redemption flow.
+
+**Loot table management** is handled automatically on every server startup — no manual SQL
+or `.reload creature_loot_template` is ever required. The module purges all item 9311 loot
+rows and re-inserts exactly the set dictated by the current config, ensuring the live loot
+tables always mirror the config file.
 
 ---
 
@@ -338,8 +420,9 @@ to your characters database.
 
 **No external dependencies required.** Uses only the Python standard library.
 
-> **Note:** Red War Fuel and Blue War Fuel are intentionally absent from the code generator.
-> No codes exist for these items — they are always redeemed freely at the NPC.
+> **Note:** Red War Fuel, Blue War Fuel, and boss drop codes are intentionally absent from
+> the code generator. War Fuel is always redeemed freely at the NPC. Boss drop codes are
+> generated automatically at kill time and inserted directly by the server.
 
 ### Interactive Dashboard
 
@@ -382,17 +465,16 @@ python3 tools/generate_codes.py --interactive
 ```bash
 mysql -u root -p acore_characters < full_batch.sql
 ```
+
 ---
 
 ## Database Tables
 
-Both tables are created in the **characters** database.
+### Characters database
 
-### `character_tcg_redeemed`
-
-Tracks which unique items have been delivered to each character. Prevents a character from
-receiving the same permanent unlock more than once, regardless of how many valid codes are
-presented.
+**`character_tcg_redeemed`** — tracks which unique items have been delivered to each
+character. Prevents a character from receiving the same permanent unlock more than once,
+regardless of how many valid codes are presented.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -402,9 +484,8 @@ presented.
 
 Primary key: `(guid, item_entry)`
 
-### `account_tcg_codes`
-
-Stores pre-generated redemption codes. Populated by `tools/generate_codes.py`.
+**`account_tcg_codes`** — stores pre-generated redemption codes. Populated by
+`tools/generate_codes.py` for vendor redemptions, and by the boss drop system at kill time.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -429,8 +510,7 @@ manually without using the generator, insert rows with a valid `reward_group` ke
 
 If a player's bags are full at the time of redemption, all items for that redemption are
 mailed to the character rather than blocking the delivery. The redemption is recorded
-immediately so a full-bags situation cannot be exploited to obtain items repeatedly. The
-player receives a whisper directing them to a mailbox.
+immediately so a full-bags situation cannot be exploited to obtain items repeatedly.
 
 ### Crash Safety (Modes 2 and 3)
 
@@ -441,14 +521,13 @@ without consuming an additional code.
 
 ### Unique vs. Consumable — Companion Items
 
-Several items have `spellcharges = -1` in `item_template` (the flag that makes an item
-destroy itself on use), which might suggest they are consumable. However, items that teach
-a **permanent companion spell** are classified as **Unique** (one-time per character),
-because the spell is learned once and the player has no reason to receive the item again.
-This applies to Soul-Trader Beacon (38050), Banana Charm (32588), and Tuskarr Kite (49287),
-among others. True consumables — Papa Hummel's Pet Biscuit, Path of Illidan, Sandbox Tiger,
-Paint Bomb, and similar charged toys — are items where the player genuinely benefits from
-having more than one.
+Several items have `spellcharges = -1` in `item_template`, which might suggest they are
+consumable. However, items that teach a **permanent companion spell** are classified as
+**Unique** (one-time per character) because the spell is learned once and the player has no
+reason to receive the item again. This applies to Soul-Trader Beacon (38050), Banana Charm
+(32588), and Tuskarr Kite (49287), among others. True consumables — Papa Hummel's Pet
+Biscuit, Path of Illidan, Sandbox Tiger, Paint Bomb, and similar charged toys — are items
+where the player genuinely benefits from having more than one.
 
 ### Scourgewar Mini-Mount Faction Handling
 
@@ -457,6 +536,21 @@ Horde and Little White Stallion Bridle (49289) for Alliance. The delivery system
 the correct variant from the *receiving character's* race — not the GM's or the redeeming
 player's. The redemption key stored in `character_tcg_redeemed` is always 49288 regardless
 of which variant was delivered, so the per-character gate works correctly for both factions.
+
+### Boss Drop Stationery Readability
+
+The stationery item uses `ITEM_FIELD_FLAG_READABLE` (flag `0x00000200`) to signal to the
+WoW 3.3.5a client that the item has readable text. The text is written directly to
+`item_instance.text` immediately after the item is saved, in addition to being set via
+`Item::SetText()`, to guarantee the text is available before any client query arrives.
+
+### GM Force-Delivery Encoding
+
+For the GM force-delivery override at Landro Longshot, the `action` value passed to the
+confirmation handler encodes both the expansion sub-menu sender and the item index as
+`(origSender << 8) | origAction`. This allows the override handler to reconstruct exactly
+which item is being re-delivered without any additional state. Safe as long as sender values
+and item counts per expansion remain below 256, which they do with considerable headroom.
 
 ---
 
@@ -471,6 +565,64 @@ The script registration function is named `Addmod_tcg_vendorsScripts()`, followi
 Playerbots fork build system conventions. This name is also valid on standard AzerothCore
 (the convention was standardised in a 2022 core update), so no changes should be required
 for either target.
+
+---
+
+## Changelog
+
+### File index
+
+| File | Description |
+|------|-------------|
+| `src/mod_tcg_vendors.cpp` | All C++ logic — NPC scripts, delivery, code redemption, boss drop |
+| `conf/mod-tcg-vendors.conf.dist` | Configuration template — copy and remove `.dist` to activate |
+| `sql/characters/base/create_tcg_redeemed_table.sql` | Creates `character_tcg_redeemed` table |
+| `sql/characters/base/create_tcg_codes_table.sql` | Creates `account_tcg_codes` table |
+| `sql/world/base/zzz_tcg_vendors_setup.sql` | NPC script names, gossip flags, creature spawns |
+| `tools/generate_codes.py` | Interactive and CLI code generation tool |
+
+### v1.0 — Initial implementation
+
+- `npc_landro_longshot` — full TCG expansion browse tree with 46 items across 13 set categories,
+  Mode 0–3 support, GM free-browse and delivery.
+- `npc_blizzcon_vendor` — Ransin Donner and Zas'Tysh handling Murky, Murloc Costume, and
+  Big Blizzard Bear, Mode 0–3 support.
+- Four operation modes: Disabled, Free, Blizz-like (root code entry), Item-Specific Code.
+- `character_tcg_redeemed` and `account_tcg_codes` database tables.
+- Inventory-full mail fallback, crash-safe code marking, faction-aware mount delivery.
+- `tools/generate_codes.py` — interactive TUI dashboard and full CLI for code generation.
+- `npc_promo_vendor` — new script handling both Garel Redrock (Alliance, entry 16070) and
+  Tharl Stonebleeder (Horde, entry 16076), covering 23 additional promotional items across
+  four categories: Murloc Companions, Classic & Special Promotions, Blizzard Store, and
+  Special Events & Tournaments.
+- `zzz_tcg_vendors_setup.sql` — automatically spawns Garel Redrock and Gurky in The Forlorn
+  Cavern (Ironforge), repositions Murky next to Ransin Donner, prefixed `zzz_` for correct
+  DB auto-updater load order.
+- All promo items added to `generate_codes.py`; War Fuel explicitly excluded (no codes).
+- GM force-delivery override — when a target character has already received a unique item,
+  GM is shown a confirmation dialog rather than a silent block. Typing the character's name
+  a second time bypasses the redemption flag.
+
+### v1.1 — Boss drop system
+
+- `tcg_boss_drop_world_script` — on startup, purges all item 9311 rows from
+  `creature_loot_template` and re-inserts exactly the set dictated by `BossDrop.CreatureIds`
+  and `BossDrop.MailParticipants`, then reloads creature loot tables in-process.
+- `tcg_boss_drop_script` — `PlayerScript` using `OnPlayerCreatureKill` to detect configured
+  boss kills, generate a code, park metadata for the loot hook, and optionally mail unique
+  stationery to all group/raid participants.
+- `tcg_boss_drop_player_script` — `PlayerScript` using `OnPlayerLootItem` to inject the
+  generated code text onto the freshly-created stationery instance when a player loots it
+  from the boss corpse.
+- `StampItemText()` — sets `ITEM_FIELD_FLAG_READABLE` and `Item::SetText()` to make the
+  stationery right-clickable and readable in-game.
+- `DirectWriteItemText()` — immediately writes text to `item_instance.text` as a safety net
+  for forks where `SaveToDB` does not include `m_text`.
+- `TCGVendors.BossDrop.MailParticipants` expanded from bool to three-value int: `0` = loot
+  only, `1` = mail only (no loot rows inserted), `2` = mail and loot.
+- New config keys: `TCGVendors.BossDrop.Enabled`, `TCGVendors.BossDrop.CreatureIds`,
+  `TCGVendors.BossDrop.ItemIds`, `TCGVendors.BossDrop.MailParticipants`.
+- `#include "Group.h"` and `#include "LootMgr.h"` added.
 
 ---
 

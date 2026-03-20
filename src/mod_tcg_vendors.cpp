@@ -2,8 +2,10 @@
 #include "Creature.h"
 #include "DatabaseEnv.h"
 #include "GossipDef.h"
+#include "Group.h"
 #include "Item.h"
 #include "Log.h"
+#include "LootMgr.h"
 #include "Mail.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -110,7 +112,7 @@ static constexpr uint32 WARBOT_PET_SPELL = 65682;
 //
 //  factionMount   Horde gets entries[0], Alliance gets entries[1].
 //                 entries[0] is always the redemption key.
-// ============================================================
+// ============================================================================
 struct TCGItem
 {
     std::string         displayName;
@@ -344,6 +346,14 @@ static const std::map<uint32, std::string> EXPANSION_NAMES =
     { SENDER_PR,   "Points Redemption"        },
 };
 
+static const std::map<uint32, std::string> PROMO_CATEGORY_NAMES =
+{
+    { SENDER_PROMO_MURLOC,  "Murloc Companions"             },
+    { SENDER_PROMO_CLASSIC, "Classic & Special Promotions"  },
+    { SENDER_PROMO_STORE,   "Blizzard Store"                },
+    { SENDER_PROMO_EVENTS,  "Special Events & Tournaments"  },
+};
+
 // ============================================================
 //  Blizzcon vendor catalog  (Ransin Donner / Zas'Tysh)
 // ============================================================
@@ -392,14 +402,6 @@ static const std::map<uint32, std::vector<TCGItem>> PROMO_CATALOG =
     }},
 };
 
-static const std::map<uint32, std::string> PROMO_CATEGORY_NAMES =
-{
-    { SENDER_PROMO_MURLOC,  "Murloc Companions"             },
-    { SENDER_PROMO_CLASSIC, "Classic & Special Promotions"  },
-    { SENDER_PROMO_STORE,   "Blizzard Store"                },
-    { SENDER_PROMO_EVENTS,  "Special Events & Tournaments"  },
-};
-
 // ============================================================
 //  C O N F I G   H E L P E R S
 // ============================================================
@@ -413,10 +415,10 @@ static int GetVendorMode()
             "mod-tcg-vendors: TCGVendors.Mode has unrecognised value {} — "
             "falling back to Mode 2 (Blizz-like).", mode);
         return MODE_BLIZZLIKE;
+    } else {
+        return mode;
     }
-    return mode;
 }
-
 // Returns true when Landro's Gift Box and Pet Box should be treated
 // as consumable (multi-redeemable).  Reads TCGVendors.LandroBoxesMultiRedeem.
 static bool GetLandroBoxIsConsumable()
@@ -1098,6 +1100,7 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
+
         ClearGossipMenuFor(player);
 
         if (player->IsGameMaster())
@@ -1263,6 +1266,9 @@ public:
     bool OnGossipSelect(Player* player, Creature* creature,
                         uint32 sender, uint32 action) override
     {
+        if (GetVendorMode() == MODE_DISABLED)
+            return false;
+
         ClearGossipMenuFor(player);
 
         if (sender == SENDER_MAIN)
@@ -1296,7 +1302,8 @@ public:
             return true;
         }
 
-        HandleBrowseSelect(player, creature, action, catalogIt->second);
+        if (GetVendorMode() == MODE_FREE)
+            HandleBrowseSelect(player, creature, action, catalogIt->second);
 
         ShowExpansionItems(player, creature, sender, NPC_TEXT_LANDRO);
         return true;
@@ -1428,8 +1435,7 @@ public:
                     AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1,
                         "[GM] Force delivery to \"" + codeStr + "\" anyway",
                         SENDER_GM_FORCE, action,
-                        "\"" + codeStr + "\" already has \"" +
-                        BLIZZCON_CATALOG[idx].displayName +
+                        "\"" + codeStr + "\" already has \"" + BLIZZCON_CATALOG[idx].displayName +
                         "\". Enter their name again to confirm forced re-delivery:",
                         0, true);
                     AddGossipItemFor(player, GOSSIP_ICON_CHAT,
@@ -1480,7 +1486,6 @@ public:
         return true;
     }
 };
-
 
 // ============================================================
 //  Promo vendor browse helpers
@@ -1793,6 +1798,463 @@ public:
 };
 
 // ============================================================
+//  BOSS DROP CONFIG HELPERS
+// ============================================================
+static bool GetBossDropEnabled()
+{
+    return sConfigMgr->GetOption<bool>("TCGVendors.BossDrop.Enabled", false);
+}
+
+static std::vector<uint32> GetBossDropCreatureIds()
+{
+    std::vector<uint32> ids;
+    std::string str = sConfigMgr->GetOption<std::string>("TCGVendors.BossDrop.CreatureIds", "");
+    size_t start = 0, end;
+    while ((end = str.find(',', start)) != std::string::npos) {
+        std::string token = str.substr(start, end - start);
+        if (!token.empty()) ids.push_back(std::stoul(token));
+        start = end + 1;
+    }
+    if (start < str.size()) ids.push_back(std::stoul(str.substr(start)));
+    return ids;
+}
+
+static std::vector<uint32> GetBossDropItemIds()
+{
+    std::vector<uint32> ids;
+    std::string str = sConfigMgr->GetOption<std::string>("TCGVendors.BossDrop.ItemIds", "");
+    size_t start = 0, end;
+    while ((end = str.find(',', start)) != std::string::npos) {
+        std::string token = str.substr(start, end - start);
+        if (!token.empty()) ids.push_back(std::stoul(token));
+        start = end + 1;
+    }
+    if (start < str.size()) ids.push_back(std::stoul(str.substr(start)));
+    return ids;
+}
+
+// TCGVendors.BossDrop.MailParticipants
+//   0 — disabled (loot window only)
+//   1 — mail only (no loot template rows; stationery mailed to every participant)
+//   2 — mail AND loot (stationery on corpse + mail to every participant)
+static int GetBossDropMailMode()
+{
+    int mode = sConfigMgr->GetOption<int>("TCGVendors.BossDrop.MailParticipants", 0);
+    if (mode < 0 || mode > 2)
+    {
+        LOG_WARN("module",
+            "mod-tcg-vendors: TCGVendors.BossDrop.MailParticipants has unrecognised value {} "
+            "— falling back to 0 (disabled).", mode);
+        return 0;
+    }
+    return mode;
+}
+// ============================================================
+
+// Helper: Generate a random code (alphanumeric, 12 chars)
+static std::string GenerateRandomCode()
+{
+    static const char alphanum[] = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    std::string raw;
+    for (int i = 0; i < 16; ++i)
+        raw += alphanum[urand(0, sizeof(alphanum) - 2)];
+    // Format as XXXX-XXXX-XXXX-XXXX
+    return raw.substr(0,4) + "-" + raw.substr(4,4) + "-" + raw.substr(8,4) + "-" + raw.substr(12,4);
+}
+
+// Helper: Find reward_group key for an itemId
+static std::string GetRewardGroupForItem(uint32 itemId)
+{
+    for (const auto& pair : REWARD_GROUPS)
+    {
+        for (uint32 entry : pair.second.itemEntries)
+        {
+            if (entry == itemId)
+                return pair.first;
+        }
+    }
+    return "";
+}
+
+// Helper: Insert code into the module's code tracking table for boss drops
+static void InsertCodeToDatabase(const std::string& code, const std::string& rewardGroup)
+{
+    std::string escCode = code;
+    std::string escGroup = rewardGroup;
+    CharacterDatabase.EscapeString(escCode);
+    CharacterDatabase.EscapeString(escGroup);
+    CharacterDatabase.Execute(
+        "INSERT INTO account_tcg_codes (code, reward_group, redeemed, account_id, character_guid, redeemed_date) "
+        "VALUES ('{}', '{}', 0, NULL, NULL, NULL)",
+        escCode, escGroup);
+}
+
+
+// Helper: Map itemId to vendor name
+// Helper: Map an item entry to the NPC vendor name(s) that handle it.
+//
+// Rather than maintaining a hardcoded list, we scan the three catalogs
+// directly — this stays automatically correct as catalogs change.
+//
+// Blizzcon and Promo items are sold at paired Alliance/Horde vendors;
+// we list both so the stationery is useful regardless of the reader's
+// faction.
+static std::string GetVendorForItem(uint32 itemId)
+{
+    // TCG expansion items — Landro Longshot, Booty Bay
+    for (auto const& [sender, items] : LANDRO_CATALOG)
+        for (auto const& tcgItem : items)
+            for (uint32 e : tcgItem.entries)
+                if (e == itemId)
+                    return "Landro Longshot in Booty Bay";
+
+    // Blizzcon promotional items — Ransin Donner (Alliance) / Zas'Tysh (Horde)
+    for (auto const& tcgItem : BLIZZCON_CATALOG)
+        for (uint32 e : tcgItem.entries)
+            if (e == itemId)
+                return "Ransin Donner in Ironforge (Alliance) or Zas'Tysh in Orgrimmar (Horde)";
+
+    // Additional promotional items — Garel Redrock (Alliance) / Tharl Stonebleeder (Horde)
+    for (auto const& [sender, items] : PROMO_CATALOG)
+        for (auto const& tcgItem : items)
+            for (uint32 e : tcgItem.entries)
+                if (e == itemId)
+                    return "Garel Redrock in Ironforge (Alliance) or Tharl Stonebleeder in Orgrimmar (Horde)";
+
+    // Fallback — should not be reached for any configured item
+    LOG_WARN("module",
+        "mod-tcg-vendors: GetVendorForItem: item {} not found in any catalog. "
+        "Check TCGVendors.BossDrop.ItemIds.", itemId);
+    return "the TCG vendor NPC";
+}
+
+// Helper: Get item name from item ID (fallback to numeric ID string if not found)
+static std::string GetItemName(uint32 itemId)
+{
+    if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId))
+        return proto->Name1;
+    return std::to_string(itemId);
+}
+
+// Helper: Build the flavor text message for a stationery drop
+static std::string BuildStationeryText(const std::string& bossName,
+                                       const std::string& itemName,
+                                       const std::string& code,
+                                       uint32             itemId)
+{
+    std::string vendor = GetVendorForItem(itemId);
+    return "Congratulations! You have defeated " + bossName + ".\n\n"
+           "Enclosed is a code redeemable for: " + itemName + ".\n\n"
+           "Code:\n" + code + "\n\n"
+           "To redeem this code, visit " + vendor + " and speak with the TCG vendor NPC.\n\n"
+           "This code is single-use. Thank you for playing!";
+}
+
+// Helper: Create a stationery item (9311) with text properly set for
+// in-inventory readability.
+//
+// Two things are required for the client to show an item as right-click-
+// readable and to query its text:
+//
+//   1. item_instance.text  — the actual text content, read by the server
+//      when the client queries it.  We write this directly via SQL after
+//      SaveToDB as a safety net, since Item::SetText may not be included
+//      in SaveToDB in all fork variants.
+//
+//   2. ITEM_FIELD_FLAG_READABLE (0x00000200) — set on the item's flags field.
+//      When present, the client shows the right-click-to-read option and
+//      sends CMSG_ITEM_TEXT_QUERY.  The server responds with item_instance.text
+//      looked up by the item's own GUID.  This fork has no separate
+//      ITEM_FIELD_ITEM_TEXT_ID update field; the readable flag is sufficient.
+//
+// SetText alone is insufficient without the readable flag.
+static void StampItemText(Item* item, Player* owner, const std::string& text)
+{
+    // 1. Set in-memory text — populates m_text for SaveToDB.
+    item->SetText(text);
+
+    // 2. Set ITEM_FIELD_FLAG_READABLE (0x00000200) on the item's flags field.
+    //    This is what tells the client to show the right-click-to-read option
+    //    and to send CMSG_ITEM_TEXT_QUERY.  The server responds to that query
+    //    with item_instance.text looked up by the item's GUID.
+    //    There is no separate ITEM_FIELD_ITEM_TEXT_ID in this fork.
+    item->SetFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_READABLE);
+
+    // 3. Mark dirty so the flag update is sent to the client on the next
+    //    update cycle and written to item_instance on the next autosave.
+    if (owner)
+        item->SetState(ITEM_CHANGED, owner);
+}
+
+static Item* CreateStationeryWithText(Player* owner, const std::string& text)
+{
+    Item* item = Item::CreateItem(9311, 1, owner);
+    if (!item)
+        return nullptr;
+    StampItemText(item, nullptr, text);  // no owner yet — SaveToDB will persist
+    return item;
+}
+
+// After a SaveToDB + CommitTransaction call, write the text directly to
+// item_instance.text.  This is a safety net for forks where SaveToDB does
+// not include the m_text field in its INSERT/UPDATE statement.
+static void DirectWriteItemText(uint32 itemGuidLow, const std::string& text)
+{
+    std::string escaped = text;
+    CharacterDatabase.EscapeString(escaped);
+    CharacterDatabase.Execute(
+        "UPDATE item_instance SET text = '{}' WHERE guid = {}",
+        escaped, itemGuidLow);
+}
+
+// ============================================================
+//  Boss Drop State
+//
+//  Keyed by creature entry ID.  Written in OnPlayerCreatureKill,
+//  read in OnPlayerLootItem when each player picks up the stationery.
+//
+//  WHY THIS IS NECESSARY:
+//  creature_loot_template stores item template entry IDs, not instances.
+//  When a player loots, the engine calls Item::CreateItem() to produce a
+//  brand-new blank instance — any pre-saved texted instance is orphaned.
+//
+//  The solution is to carry the pending text across the kill→loot boundary
+//  in a C++ map, then inject it onto the fresh instance in OnPlayerLootItem
+//  immediately after the loot system creates it.
+// ============================================================
+struct PendingBossDrop
+{
+    std::string rewardGroup;
+    std::string bossName;
+    std::string itemName;
+    uint32      itemId = 0;
+};
+
+// Safe: AzerothCore map update loop is single-threaded per map.
+static std::map<uint32, PendingBossDrop> s_pendingBossDrops;
+
+// ============================================================
+//  tcg_boss_drop_script  (PlayerScript)
+//  Uses OnPlayerCreatureKill to detect configured boss kills.
+// ============================================================
+class tcg_boss_drop_script : public PlayerScript
+{
+public:
+    tcg_boss_drop_script() : PlayerScript("tcg_boss_drop_script") {}
+
+    void OnPlayerCreatureKill(Player* killer, Creature* killed) override
+    {
+        if (!GetBossDropEnabled() || !killer || !killed)
+            return;
+
+        uint32 creatureEntry = killed->GetEntry();
+        auto bossIds = GetBossDropCreatureIds();
+        if (std::find(bossIds.begin(), bossIds.end(), creatureEntry) == bossIds.end())
+            return;
+
+        auto itemIds = GetBossDropItemIds();
+        if (itemIds.empty())
+            return;
+
+        uint32 itemId = itemIds[urand(0, static_cast<uint32>(itemIds.size()) - 1)];
+        std::string rewardGroup = GetRewardGroupForItem(itemId);
+        if (rewardGroup.empty())
+        {
+            LOG_ERROR("module",
+                "mod-tcg-vendors: BossDrop item {} has no matching reward_group. "
+                "Check TCGVendors.BossDrop.ItemIds and REWARD_GROUPS.", itemId);
+            return;
+        }
+
+        std::string bossName = killed->GetName();
+        std::string itemName = GetItemName(itemId);
+
+        // Park metadata only — code generation happens in OnPlayerLootItem
+        // so each looting player gets their own unique code from the corpse.
+        // The mail-participants path generates its own codes independently.
+        s_pendingBossDrops[creatureEntry] = { rewardGroup, bossName, itemName, itemId };
+
+        // ---- Optional: mail a unique code to every group/raid member ----
+        // Fires for MailParticipants = 1 (mail only) or 2 (mail + loot).
+        if (GetBossDropMailMode() >= 1)
+        {
+            std::vector<Player*> participants;
+            if (Group* group = killer->GetGroup())
+            {
+                for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                {
+                    Player* member = ref->GetSource();
+                    if (member && member->GetMap() == killed->GetMap())
+                        participants.push_back(member);
+                }
+            }
+            else
+            {
+                participants.push_back(killer);
+            }
+
+            for (Player* p : participants)
+            {
+                std::string pCode = GenerateRandomCode();
+                InsertCodeToDatabase(pCode, rewardGroup);
+
+                std::string pText = BuildStationeryText(bossName, itemName, pCode, itemId);
+                Item* scroll = CreateStationeryWithText(p, pText);
+                if (!scroll)
+                    continue;
+
+                uint32 scrollGuid = scroll->GetGUID().GetCounter();
+
+                CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                scroll->SaveToDB(trans);
+                MailDraft("A reward for your valor!", "")
+                    .AddItem(scroll)
+                    .SendMailTo(trans,
+                        MailReceiver(p, p->GetGUID().GetCounter()),
+                        MailSender(killed));
+                CharacterDatabase.CommitTransaction(trans);
+
+                // Safety net: write text directly to item_instance in case
+                // SaveToDB does not include m_text in this fork.
+                DirectWriteItemText(scrollGuid, pText);
+            }
+        }
+    }
+};
+
+// ============================================================
+//  tcg_boss_drop_player_script  (PlayerScript)
+//  Uses OnPlayerLootItem to inject the pending code text onto the
+//  fresh stationery instance the loot system just created.
+// ============================================================
+class tcg_boss_drop_player_script : public PlayerScript
+{
+public:
+    tcg_boss_drop_player_script() : PlayerScript("tcg_boss_drop_player_script") {}
+
+    void OnPlayerLootItem(Player* player, Item* item, uint32 /*count*/, ObjectGuid lootGuid) override
+    {
+        if (!GetBossDropEnabled() || !player || !item)
+            return;
+
+        if (item->GetEntry() != 9311)
+            return;
+
+        if (!lootGuid.IsCreature())
+            return;
+
+        Creature* source = ObjectAccessor::GetCreature(*player, lootGuid);
+        if (!source)
+            return;
+
+        uint32 creatureEntry = source->GetEntry();
+        auto it = s_pendingBossDrops.find(creatureEntry);
+        if (it == s_pendingBossDrops.end())
+            return;
+
+        const PendingBossDrop& drop = it->second;
+
+        // Generate a unique code for this specific looting player.
+        std::string code = GenerateRandomCode();
+        InsertCodeToDatabase(code, drop.rewardGroup);
+        std::string text = BuildStationeryText(drop.bossName, drop.itemName, code, drop.itemId);
+
+        // Stamp the looted item in-place.
+        //
+        // StampItemText does three things:
+        //   1. item->SetText(text)       — sets m_text for future SaveToDB calls
+        //   2. SetFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_READABLE) — tells the
+        //      client this item has readable text; client sends CMSG_ITEM_TEXT_QUERY
+        //   3. SetState(ITEM_CHANGED)    — queues the flag update to be sent to
+        //      the client on the next update cycle
+        //
+        // DirectWriteItemText immediately writes to item_instance.text so the
+        // text is available the moment the client queries (CMSG_ITEM_TEXT_QUERY),
+        // without waiting for the next autosave.
+        StampItemText(item, player, text);
+        DirectWriteItemText(item->GetGUID().GetCounter(), text);
+    }
+};
+
+// ============================================================
+//  tcg_boss_drop_world_script  (WorldScript)
+//
+//  On server startup, ensures every boss entry configured in
+//  TCGVendors.BossDrop.CreatureIds has a creature_loot_template
+//  row guaranteeing a 100% drop of item 9311 (Simple Stationery).
+//
+//  If any new rows are written, the creature loot tables are
+//  reloaded in-process — no manual .reload or restart required.
+//  If the rows already exist from a previous run or from manually
+//  applying the SQL, nothing is touched and no reload happens.
+// ============================================================
+class tcg_boss_drop_world_script : public WorldScript
+{
+public:
+    tcg_boss_drop_world_script() : WorldScript("tcg_boss_drop_world_script") {}
+
+    void OnStartup() override
+    {
+        // Always purge ALL item 9311 rows on startup.
+        // This keeps creature_loot_template in exact sync with the config
+        // whether the feature is enabled, disabled, or CreatureIds is empty.
+        WorldDatabase.Execute(
+            "DELETE FROM creature_loot_template WHERE Item = 9311");
+
+        if (!GetBossDropEnabled())
+        {
+            // Feature disabled — reload to reflect the clean state and stop.
+            LoadLootTemplates_Creature();
+            LootTemplates_Creature.CheckLootRefs();
+            LOG_INFO("module",
+                "mod-tcg-vendors: BossDrop disabled. "
+                "All stationery loot rows purged.");
+            return;
+        }
+
+        int mailMode = GetBossDropMailMode();
+        auto bossIds = GetBossDropCreatureIds();
+
+        // MailParticipants = 1 (mail only): no loot rows needed — stationery
+        // is mailed directly to participants, never appears on the corpse.
+        // Also skip loot rows if CreatureIds is empty regardless of mail mode.
+        if (mailMode == 1 || bossIds.empty())
+        {
+            LoadLootTemplates_Creature();
+            LootTemplates_Creature.CheckLootRefs();
+            if (mailMode == 1)
+                LOG_INFO("module",
+                    "mod-tcg-vendors: BossDrop MailParticipants=1 (mail only). "
+                    "No loot template rows inserted.");
+            else
+                LOG_INFO("module",
+                    "mod-tcg-vendors: BossDrop enabled but CreatureIds is empty. "
+                    "All stationery loot rows purged.");
+            return;
+        }
+
+        // MailParticipants = 0 or 2: stationery appears on the corpse.
+        // Insert one row per configured boss at 100% drop chance.
+        for (uint32 bossEntry : bossIds)
+        {
+            WorldDatabase.Execute(
+                "INSERT INTO creature_loot_template "
+                "(Entry, Item, Reference, Chance, QuestRequired, LootMode, GroupId, MinCount, MaxCount, Comment) "
+                "VALUES ({}, 9311, 0, 100, 0, 1, 0, 1, 1, 'TCG code scroll — mod-tcg-vendors')",
+                bossEntry);
+            LOG_INFO("module",
+                "mod-tcg-vendors: Registered stationery drop for boss entry {}.", bossEntry);
+        }
+
+        LoadLootTemplates_Creature();
+        LootTemplates_Creature.CheckLootRefs();
+        LOG_INFO("module",
+            "mod-tcg-vendors: Creature loot templates synced — {} boss drop row(s) active.",
+            static_cast<uint32>(bossIds.size()));
+    }
+};
+
+// ============================================================
 //  Script registration
 // ============================================================
 void Addmod_tcg_vendorsScripts()
@@ -1800,4 +2262,7 @@ void Addmod_tcg_vendorsScripts()
     new npc_landro_longshot();
     new npc_blizzcon_vendor();
     new npc_promo_vendor();
+    new tcg_boss_drop_script();
+    new tcg_boss_drop_player_script();
+    new tcg_boss_drop_world_script();
 }

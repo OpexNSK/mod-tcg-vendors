@@ -1,0 +1,211 @@
+###############################################################################
+#
+#  mod-tcg-vendors.conf
+#  Configuration for the TCG / Promotional Vendor Module
+#
+#  Copy this file to your AzerothCore server's module configuration directory
+#  as "mod-tcg-vendors.conf" (remove the .dist extension) alongside your
+#  other module .conf files, then edit as desired.
+#
+#  NPCs covered by this module:
+#    Landro Longshot      (NPC 17249) — Booty Bay, TCG card set rewards
+#    Ransin Donner        (NPC 2943)  — Ironforge, Blizzcon promotional items
+#    Zas'Tysh             (NPC 7951)  — Orgrimmar, Blizzcon promotional items
+#    Garel Redrock        (NPC 16070) — Ironforge, murloc companions & promo items
+#    Tharl Stonebleeder   (NPC 16076) — Orgrimmar, murloc companions & promo items
+#
+###############################################################################
+
+[worldserver]
+
+###############################################################################
+#  TCGVendors.Mode
+#
+#    Controls the overall redemption behaviour of all five vendor NPCs.
+#
+#    0 - DISABLED
+#        The NPCs revert to their default database gossip behaviour.
+#        No item redemption is offered.  Use this to temporarily suspend
+#        the system without uninstalling the module or reverting any SQL.
+#
+#    1 - FREE
+#        No redemption codes required.  Any player can visit an NPC and
+#        select items directly from the gossip menu.
+#
+#        Unique items (mounts, permanent companions, cosmetics) may only
+#        be redeemed once per character, tracked in character_tcg_redeemed.
+#
+#        Consumable items (charged toys, stackable novelties, Scourgewar
+#        mini-mounts, War Fuel) are unlimited and may be taken any number
+#        of times.  See the isConsumable notes in mod_tcg_vendors.cpp for
+#        the full classification.
+#
+#        War Fuel (Red/Blue) is always freely available regardless of mode,
+#        provided the character has already learned the Warbot companion.
+#
+#    2 - BLIZZ-LIKE  (default)
+#        Players must enter a valid pre-generated XXXX-XXXX-XXXX-XXXX code
+#        at the NPC root dialog.  Each code is single-use, tracked at
+#        account level in account_tcg_codes.  Item delivery is additionally
+#        gated per-character for unique items.
+#
+#        Landro Longshot and the promo vendors (Garel/Tharl) present a
+#        single root code-entry dialog — the reward is determined by the
+#        code itself, not by any prior browsing step.
+#
+#        Blizzcon vendors (Ransin/Zas'Tysh) list items directly with a
+#        per-item code dialog in this mode.
+#
+#        Use tools/generate_codes.py to generate codes and insert them
+#        into account_tcg_codes in your characters database.
+#
+#        The GM free-browse menu remains available to Game Masters in all
+#        modes for manual item delivery and testing.
+#
+#    3 - ITEM-SPECIFIC CODE  (closest to original retail experience)
+#        Players browse the expansion sub-menus and select a specific item.
+#        Each item then prompts for a code.  The code is validated against
+#        account_tcg_codes AND must match the reward_group of the item
+#        selected.  A valid code for a different item produces a mismatch
+#        error rather than redeeming the wrong reward.
+#
+#    Default: 2
+#
+TCGVendors.Mode = 2
+
+###############################################################################
+#  TCGVendors.LandroBoxesMultiRedeem
+#
+#    Controls whether Landro's Gift Box (item 54218) and Landro's Pet Box
+#    (item 50301) can be redeemed more than once per character.
+#
+#    These boxes contain a random assortment of TCG rewards each time they
+#    are opened, so some server operators may wish to allow multiple claims.
+#
+#    0 - One-time per character  (default)
+#        Both boxes are treated as unique items and recorded in
+#        character_tcg_redeemed.  A character may only receive each box
+#        once, regardless of how many valid codes are presented.
+#
+#    1 - Unlimited
+#        Both boxes are treated as consumables.  A character may receive
+#        them any number of times.  In Mode 2 each code is still single-use;
+#        this only removes the per-character uniqueness gate, allowing
+#        additional boxes via additional codes.  In Mode 1 players may
+#        take boxes from the menu freely with no limit.
+#
+#    Default: 0
+#
+TCGVendors.LandroBoxesMultiRedeem = 0
+
+###############################################################################
+#
+#  B O S S   D R O P   S E T T I N G S
+#
+#  The boss drop system automatically generates a unique TCG promotional
+#  code on each configured boss kill, writes it to account_tcg_codes as
+#  unredeemed, and makes it available to players through one or both of the
+#  two delivery methods described below.
+#
+#  On server startup, the module ensures each configured boss entry has a
+#  creature_loot_template row guaranteeing a 100% drop of Simple Stationery
+#  (item 9311).  If any rows are missing they are inserted automatically and
+#  the creature loot tables are reloaded in-process — no manual .reload or
+#  server restart is required after adding a new boss to CreatureIds.
+#
+#  The stationery item contains the generated code along with flavor text
+#  identifying the boss defeated, the item that can be redeemed, and the
+#  correct vendor NPC to visit.  Players read the code by right-clicking
+#  the item in their inventory and selecting "Open".
+#
+###############################################################################
+
+###############################################################################
+#  TCGVendors.BossDrop.Enabled
+#
+#    Master switch for the entire boss drop system.  When disabled, no
+#    codes are generated, no loot rows are modified, and no mail is sent.
+#
+#    0 - Disabled  (default)
+#    1 - Enabled
+#
+#    Default: 0
+#
+TCGVendors.BossDrop.Enabled = 0
+
+###############################################################################
+#  TCGVendors.BossDrop.CreatureIds
+#
+#    Comma-separated list of creature_template entry IDs for the bosses
+#    that should trigger a code drop on kill.
+#
+#    On startup, each entry listed here will automatically receive a
+#    creature_loot_template row for item 9311 at 100% drop chance if one
+#    does not already exist.  The loot tables are then reloaded in-process.
+#
+#    Removing an entry from this list does NOT delete existing loot template
+#    rows — remove those manually from creature_loot_template if desired.
+#
+#    Example: TCGVendors.BossDrop.CreatureIds = 11502,15990,36597
+#
+#    Default: (empty — no bosses configured)
+#
+TCGVendors.BossDrop.CreatureIds =
+
+###############################################################################
+#  TCGVendors.BossDrop.ItemIds
+#
+#    Comma-separated list of item entry IDs from the TCG/promotional catalogs.
+#    Each boss kill randomly selects one item from this pool, and the
+#    generated stationery code will be redeemable for that item.
+#
+#    All entries must exist in the module's REWARD_GROUPS catalog — i.e. they
+#    must be valid items redeemable at one of the five vendor NPCs.  Any item
+#    not found in any catalog will log a warning at the time of the kill and
+#    the drop will be skipped for that kill.
+#
+#    Example: TCGVendors.BossDrop.ItemIds = 23720,33224,38576,54068
+#
+#    Default: (empty — boss drop produces nothing without at least one item)
+#
+TCGVendors.BossDrop.ItemIds =
+
+###############################################################################
+#  TCGVendors.BossDrop.MailParticipants
+#
+#    When enabled, every player in the killing group or raid who is present
+#    on the same map as the boss at the time of death receives their own
+#    stationery item via in-game mail.  Each recipient gets a separate,
+#    independently generated code — no two recipients share a code.
+#
+#    This delivery method is independent of the loot-window drop:
+#
+#      Loot window  — a single stationery item appears on the boss corpse,
+#                     claimed by whoever loots it (or distributed by master
+#                     looter).  This is always produced when the boss drop
+#                     system is enabled, as the loot template row guarantees
+#                     the item will always be present on the corpse.
+#
+#      Mail         — one stationery item is sent directly to every
+#                     qualifying group/raid member's mailbox, each with
+#                     their own unique code, regardless of who looted the
+#                     corpse.
+#
+#    Both methods can be active simultaneously.  If you want mail-only
+#    delivery with no loot-window drop, you must manually remove the
+#    creature_loot_template rows for the configured bosses after disabling
+#    the feature, then re-enable with MailParticipants = 1.
+#
+#    Solo players (no group) always receive mail to themselves.
+#
+#    0 - Disabled  (default)
+#        Only the loot-window stationery drop is produced.
+#
+#    1 - Enabled
+#        Every qualifying group/raid member present on the map receives
+#        a unique stationery in their mailbox in addition to the loot-window
+#        drop.
+#
+#    Default: 0
+#
+TCGVendors.BossDrop.MailParticipants = 0
