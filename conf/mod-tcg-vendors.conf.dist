@@ -173,38 +173,26 @@ TCGVendors.BossDrop.ItemIds =
 ###############################################################################
 #  TCGVendors.BossDrop.MailParticipants
 #
-#    When enabled, every player in the killing group or raid who is present
-#    on the same map as the boss at the time of death receives their own
-#    stationery item via in-game mail.  Each recipient gets a separate,
-#    independently generated code — no two recipients share a code.
-#
-#    This delivery method is independent of the loot-window drop:
-#
-#      Loot window  — a single stationery item appears on the boss corpse,
-#                     claimed by whoever loots it (or distributed by master
-#                     looter).  This is always produced when the boss drop
-#                     system is enabled, as the loot template row guarantees
-#                     the item will always be present on the corpse.
-#
-#      Mail         — one stationery item is sent directly to every
-#                     qualifying group/raid member's mailbox, each with
-#                     their own unique code, regardless of who looted the
-#                     corpse.
-#
-#    Both methods can be active simultaneously.  If you want mail-only
-#    delivery with no loot-window drop, you must manually remove the
-#    creature_loot_template rows for the configured bosses after disabling
-#    the feature, then re-enable with MailParticipants = 1.
-#
-#    Solo players (no group) always receive mail to themselves.
+#    Controls whether group/raid participants receive a unique stationery item
+#    via in-game mail, and whether the loot-window drop on the corpse is active.
 #
 #    0 - Disabled  (default)
-#        Only the loot-window stationery drop is produced.
+#        No mail is sent.  A single stationery item appears on the boss corpse
+#        via the loot template (claimed by whoever loots it first, or distributed
+#        by master looter).  Loot template rows for item 9311 are inserted on
+#        startup for all entries in BossDrop.CreatureIds.
 #
-#    1 - Enabled
-#        Every qualifying group/raid member present on the map receives
-#        a unique stationery in their mailbox in addition to the loot-window
-#        drop.
+#    1 - Mail only
+#        Every qualifying group/raid member present on the same map receives
+#        a stationery item in their mailbox, each containing a unique code.
+#        No loot template rows are inserted — the stationery does NOT appear
+#        on the boss corpse.  Existing 9311 rows are purged on startup.
+#        Solo players (no group) receive mail to themselves.
+#
+#    2 - Mail AND loot
+#        Every qualifying participant receives a mailed stationery with their
+#        own unique code, AND a single stationery item appears on the boss
+#        corpse as a loot-window drop.  Both paths are active simultaneously.
 #
 #    Default: 0
 #
