@@ -2680,8 +2680,8 @@ public:
     }
 
     bool OnGossipSelectCode(Player* player, Creature* creature,
-                            uint32 sender, uint32 __attribute__((unused)) action,
-                            const char* code) override
+                            uint32 sender, uint32 action,
+                            const char* code)
     {
         std::string codeStr(code ? code : "");
 
