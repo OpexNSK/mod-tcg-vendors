@@ -7,6 +7,10 @@ redemption<br> for seven World of Warcraft promotional item NPCs present in the 
 plus an optional boss drop system that generates unique TCG promotional codes on configurable
 boss kills and delivers them to players as readable in-game stationery.
 
+<H3>AFTER ENABLING BOSS DROPS FOR THE FIRST TIME, BOOT YOUR SERVER ONCE,</H3>
+<H3>ALLOW THE LOOT TABLES TO POPULATE, THEN REBOOT YOUR SERVER AGAIN.</H3>
+<H3>DEFAULT STATIONERY SHOULD NOW SHOW UP ON YOUR SELECTED BOSS ID'S UPON LOOTING</H3>
+
 | NPC | Location | Items |
 |-----|----------|-------|
 | **Landro Longshot** | Booty Bay | TCG card set rewards |
